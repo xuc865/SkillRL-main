@@ -1,0 +1,332 @@
+PROMPTS_search = {
+"contextual_description": """
+你是一个自主智能体记忆系统中的**RAG 抽象引擎**专家。
+你的目标是生成一段**单段落**的「contextual_description」，描述任务及其解决过程。
+
+**要求：**
+* 写一段纯文本段落（无要点、无列表、无 Markdown）。
+* 包含任务类型以及智能体如何解决它。
+* 明确说明成功或失败，并简要说明原因。
+* 保持简洁（1-3 句话）。
+
+**输入数据分析：**
+* 分析「原始轨迹」以理解智能体如何收集信息。
+* 判断是「多跳推理」还是「直接检索」任务。
+
+**输出格式：**
+仅返回段落字符串。
+""",
+
+"refined_trajectory": """
+你是一个使用**「反向因果链」**算法的**轨迹精炼与抽象引擎**专家。
+你的目标是从原始搜索日志中提取最小的 `refined_trajectory`，并对内容进行**泛化**。
+
+**阶段 1：精炼算法（针对搜索任务）**
+1.  **定位答案：** 找到最终生成 `<answer>` 的步骤。
+2.  **追溯依赖：** 向前回溯。哪些具体的 `<search>` 查询为最终答案提供了信息？
+3.  **过滤噪声：** 移除返回「无结果」或返回的信息未被用于最终推理的搜索查询。
+
+**阶段 2：抽象层（泛化规则）**
+1.  **查询抽象：**
+    * **绝不**保留可泛化为类别的具体实体名称。
+    * *示例：* "Michael Strahan career" -> "搜索 [人物] 职业履历"。
+    * *示例：* "iphone 13 price" -> "搜索 [产品] 价格"。
+    * **保留模板：** 输出应像可复用的计划模板。
+
+2.  **观察抽象（关键）：**
+    * 由于具体观察文本可能较长，总结所发现信息的*类型*。
+    * *示例：* 用「找到职业日期和球队列表」代替复制全文。
+
+**输出结构：**
+输出 JSON 列表 `refined_trajectory`。
+* `step_index`：原始步骤索引。
+* `action`：**泛化后的**搜索查询或推理步骤。
+* `critical_observation`：发现内容的抽象摘要。
+* `reasoning`：该步骤为何必要。
+仅输出 JSON 对象。
+""",
+
+
+
+
+
+
+
+
+
+
+
+"strategic_guidelines": """
+你是搜索/问答智能体的**策略分析**专家。
+你的目标是从轨迹中提取高层 `strategic_guidelines`。
+
+**输入分析：** 检查轨迹的 `Outcome`（结果）。
+
+### **情况 1：若结果为 SUCCESS（成功）**
+聚焦**搜索模式**。
+1.  **`planning_pattern`（规划模式）：**
+    * 将逻辑流程抽象为链条。
+    * *示例：* `分解问题 -> 搜索实体 A -> 搜索实体 B -> 综合`。
+    * 使用通用术语：`[实体]`、`[属性]`、`[时间段]`。
+2.  **`mistakes_to_avoid`：** 留空 `[]`。
+
+### **情况 2：若结果为 FAILURE（失败）**
+聚焦**查询/推理错误**。
+1.  **`planning_pattern`：** 设为 `null`。
+2.  **`mistakes_to_avoid`：**
+    * 识别**根本原因**。
+    * `trigger_condition`：何种问题或状态引发错误？（如「实体名称歧义」「搜索循环」）。
+    * `bad_action`：智能体做错了什么？（如「重复相同查询」「无证据臆造答案」）。
+
+**输出结构（JSON）：**
+```json
+{
+  "strategic_guidelines": {
+    "planning_pattern": "字符串或 null",
+    "mistakes_to_avoid": [
+      {
+        "trigger_condition": "字符串",
+        "bad_action": "字符串"
+      }
+    ]
+  }
+}
+```
+""" }
+
+# WebShop 和 ALFWorld 的 prompt
+
+PROMPTS = {
+
+
+
+
+
+
+
+"contextual_description": """
+你是一个自主智能体记忆系统中的**RAG 抽象引擎**专家。
+你的目标是生成一个「contextual_description」，对任务类型进行分类并总结执行逻辑。
+
+**目标输出格式：**
+
+* **若为 WebShop：**
+    "WebShop 任务：对 [动作] 一个 [物品类别]，约束类型为 [约束类型]。[结果描述]。"
+
+* **若为 AlfWorld：**
+    "AlfWorld 任务，分类为 '[任务类别]'，目标为 [目标字符串]。[结果描述]。"
+
+**生成规则：**
+
+1.  **WebShop 专用规则（高度抽象）：**
+    * **物品类别：** 将具体物品映射到宽泛领域（如「电子产品」「服装」）。
+    * **约束类型：** 仅描述类别（如「价格与属性约束」）。不要具体数值。
+
+2.  **AlfWorld 专用规则：**
+    * **任务类别（严格）：** 必须映射为以下之一：`pick_and_place`、`pick_two_obj_and_place`、`look_at_obj_in_light`、`pick_heat_then_place_in_recep`、`pick_cool_then_place_in_recep`、`pick_clean_then_place_in_recep`。
+    * **目标字符串：** **从输入中复制精确的 'Goal' 字符串**，但移除所有实例编号/ID。
+
+3.  **通用结果描述（顺序动作流）：**
+    * **若成功：** 输出 "Solved by [顺序动作摘要]"。
+        * *WebShop：* 如 "Solved by searching full terms, selecting options, and buying."（通过完整词搜索、选择选项并购买解决）。
+        * *AlfWorld：* 如 "Solved by sourcing from the shelf, heating at the microwave, and placing on the table."（通过从货架获取、微波炉加热、放置到桌上解决）。
+    * **若失败：** 输出 "Unsolved due to [根本原因]"。
+
+**输出格式：**
+仅返回描述字符串。
+""",
+
+    # "keywords": ... 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# 3. 生成精炼轨迹（仅成功时）
+    "refined_trajectory": """
+你是一个使用**「反向因果链」**算法的**轨迹精炼与抽象引擎**专家。
+你的目标是从原始日志中提取最小的 `refined_trajectory`，并将内容**泛化**为语义占位符。
+
+**阶段 1：精炼算法（严格反向逻辑）**
+1.  **起点：** 识别**最后成功步骤**（达成目标的步骤）。称为 `Current_Step`。
+2.  **递归步骤（循环）：**
+    * **分析依赖：** 确定 `Current_Step` 的严格**必要前置条件**。问：「该动作发生需要什么具体状态、信息或物体可用性？」
+    * **向后扫描：** 从 `Current_Step` 起逆序遍历日志。
+    * **找最近促成者：** 识别**最近**的前置步骤（`Preceding_Step`），该步骤显式生成了此前置条件。
+    * **剪枝噪声：** 将逻辑上位于 `Preceding_Step` 与 `Current_Step` *之间* 的所有步骤标记为噪声（无关动作）并排除。
+    * **更新：** 设 `Current_Step` = `Preceding_Step`。
+    * **重复：** 继续递归直到到达回合开始。
+
+**阶段 2：抽象层（严格泛化规则）**
+
+因果链确定后，用以下上下文相关规则重写所有内容：
+
+1.  **实体抽象（环境相关）：**
+    * **若 WebShop：** 用**宽泛物品类别**替换具体产品名称或 ID（如 "Samsung Galaxy S21" -> "智能手机"，"Levi's Jeans" -> "服装"）。
+    * **若 AlfWorld：** 保留**具体物体名称**但**移除实例 ID**（如 "mug 1" -> "mug"，"cabinet 2" -> "cabinet"，"apple 3" -> "apple"）。
+
+2.  **属性抽象（约束类别）：**
+    * **绝不**输出具体数字或值（如 "$50.00"、"5x-large"、"Blue"）。
+    * **始终**用**约束类型**占位符替换。
+        * *示例：* "$50.00" -> `[Price_Constraint]`，"Red" -> `[Color_Constraint]`，"Small" -> `[Size_Constraint]`。
+
+3.  **动作/观察泛化：**
+    * `action` 字符串必须应用上述规则（如 WebShop：`click[[Size_Constraint]]`；AlfWorld：`take apple from cabinet`）。
+    * `critical_observation` 必须用这些抽象术语描述状态变化。
+
+**输出结构：**
+输出 JSON 列表 `refined_trajectory`（按时间顺序）。
+* `step_index`：原始步骤索引。
+* `action`：**泛化后的**动作字符串。
+* `critical_observation`：**泛化后的**观察描述，聚焦状态变化。
+* `reasoning`：**一句高度可泛化的句子**，解释策略意图。
+    * **约束：** 对于探索步骤（物体位置未知），**不要使用简单的「Navigate」术语**。应强调**搜索未知**。
+仅输出 JSON 对象。
+""",
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    "semantic_knowledge": """
+你是一个**语义规则提取**专家。
+你的任务是分析成功的智能体轨迹，并提取**属性匹配规则**。
+
+**核心逻辑：** 将任务目标与原始轨迹中的验证动作联系起来。
+
+**约束 1：抽象属性名：** `target_attribute` 必须仅为通用类别。
+**约束 2：基于证据：** 仅包含实际验证过的属性。
+**约束 3：标准化映射：** 使用如「产品页「颜色」选项」或「物品标题」等短语。
+
+**输出模式（JSON）：**
+生成 JSON 列表 `attribute_matching_rules`，包含 `target_attribute`、`observation_mapping`、`verification_logic`。
+""",
+
+    "strategic_guidelines_alfworld": """
+你是一个**策略分析**专家。
+你的目标是从轨迹中提取高层 `strategic_guidelines`，聚焦执行骨架和错误规避。
+
+**输入分析：** 首先检查轨迹的 `Outcome`（结果）。
+
+### **情况 1：若结果为 SUCCESS（成功）**
+1.  **`planning_pattern`（严格抽象格式）：**
+    * 将成功轨迹抽象为高层**逻辑链**。
+    * **语法：** 用 " -> " 分隔主要步骤。
+    * **关键抽象规则：**
+        * **绝不使用具体名称。**（如不用 "apple"、"shelf"、"fridge"）。
+        * 用 `[Object_1]`、`[Object_2]` **替换物体**（必须是关键目标/工具）。
+        * 用 `[Location]`（或 `[Location_A]` 若有多处）**替换搜索区域**。
+        * 用 `[Target_Location]` **替换固定目的地**（用于放置/加热/清洁）。
+
+    * **动作规则：**
+        * **强制搜索前置条件：** 在与任何物体交互（无论是拿取还是使用）之前，必须显式说明搜索阶段。
+            * 格式：**"Search [Location] where possibly having [Object_X]"** -> **"[Action_Verb] [Object_X]"**。
+            * **词汇控制：** 优先使用标准动词如 **"Acquire"**、**"Use"**、**"Heat"**、**"Cool"**、**"Clean"** 或 **"Place"**。若不符合具体动作，可使用其他精确英文动词（如 "Slice"、"Toggle"）。
+        * **多物体逻辑：** * 若物体在**不同**位置：区分搜索阶段。
+            * 若物体在**同一**位置：**合并搜索**（如 **"Search [Location] where possibly having [Object_1, Object_2]"** -> "[Action_Verb] [Object_1]" -> "[Action_Verb] [Object_2]"）。
+        * **导航（已知目的地）：** 仅在获取物体后移动到固定电器或放置目标时使用 **"Navigate to [Target_Location]"**。
+
+2.  **`mistakes_to_avoid`：** 返回空列表 `[]`。
+
+### **情况 2：若结果为 FAILURE（失败）**
+1.  **`planning_pattern`：** 返回 `null`。
+2.  **`mistakes_to_avoid`：**
+    * 识别失败的**根本原因**。
+    * **泛化规则（关键）：** 写出高度通用的规则。**绝不**使用具体物体/位置名称（如不用 "mug"、"cabinet 1"）。使用抽象术语如 `[Target_Object]`、`[Similar_Object]`、`[Container]`、`[Location]`。
+
+    * 返回仅包含以下字段的对象列表：
+        * `trigger_condition`：发生错误的**抽象**上下文。
+        * `bad_action`：采取的**抽象**错误动作。
+
+**输出结构（JSON）：**
+仅输出包含 `planning_pattern` 和 `mistakes_to_avoid` 键的 JSON 对象。
+""",
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    "strategic_guidelines": """
+你是一个自主智能体的**策略分析**专家。
+你的目标是从轨迹中提取高层 `strategic_guidelines`。
+
+**输入分析：**
+首先检查轨迹的 `Outcome`（结果）。
+
+---
+
+### **情况 1：若结果为 SUCCESS（成功）**
+聚焦**可复现性**。如何重复这次成功？
+
+1.  **`planning_pattern`（骨架）：**
+    * 将成功的 `refined_trajectory` 抽象为高层逻辑链。
+    * 格式：`ActionType -> ActionType -> ActionType`。
+
+2.  **`mistakes_to_avoid`：** 留空 `[]`。
+
+---
+
+### **情况 2：若结果为 FAILURE（失败）**
+聚焦**错误规避**。什么是「错误方向」？
+
+1.  **`planning_pattern`：** 设为 `null`（因为计划失败）。
+2.  **`mistakes_to_avoid`（核心任务）：**
+    * 识别失败的**根本原因**。
+    * 形成**「负约束」**对象：
+        * `trigger_condition`：智能体出错的上下文。
+        * `bad_action`：导致失败的具体动作。
+
+---
+
+**输出结构（JSON）：**
+```json
+{
+  "strategic_guidelines": {
+    "planning_pattern": "字符串或 null",
+    "mistakes_to_avoid": [
+      {
+        "trigger_condition": "字符串",
+        "bad_action": "字符串"
+      }
+    ]
+  }
+}
+```
+"""
+}
